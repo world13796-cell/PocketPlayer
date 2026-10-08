@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>口袋播放器</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--pink:#fb7299;--blue:#00a1d6;--fg:#fff}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;height:100%;background:#000;color:var(--fg);font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden;user-select:none;-webkit-user-select:none}
+#app{position:relative;width:100%;height:100%;background:#000;overflow:hidden}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+#dim{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none}
+#stage{position:absolute;inset:0;touch-action:none}
+.bar{position:absolute;left:0;right:0;padding:10px 14px;display:flex;align-items:center;gap:10px;transition:opacity .2s;z-index:5}
+#top{top:0;background:linear-gradient(#000a,transparent);padding-top:calc(10px + env(safe-area-inset-top,0px))}
+#bot{bottom:0;flex-direction:column;align-items:stretch;background:linear-gradient(transparent,#000b);padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+.row{display:flex;align-items:center;gap:8px}
+.hide .bar,.hide #lock{opacity:0;pointer-events:none}
+.locked #top,.locked #bot{opacity:0;pointer-events:none}
+button{background:none;border:0;color:#fff;font:inherit;font-size:15px;padding:8px 10px;border-radius:8px;cursor:pointer;min-width:40px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+#title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:15px}
+#time{font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#seek{flex:1;-webkit-appearance:none;appearance:none;height:22px;background:transparent;margin:0}
+#seek::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,var(--pink) var(--p,0%),#fff5 var(--p,0%))}
+#seek::-moz-range-track{height:3px;border-radius:2px;background:#fff5}
+#seek::-moz-range-progress{height:3px;background:var(--pink)}
+#seek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;margin-top:-5.5px;border:2px solid var(--pink)}
+#seek::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid var(--pink)}
+#lock{position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:6;background:#0008;border-radius:50%;width:44px;height:44px;padding:0;transition:opacity .2s}
+#toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);background:#000a;padding:8px 16px;border-radius:20px;font-size:15px;opacity:0;transition:opacity .15s;pointer-events:none;white-space:nowrap;z-index:7}
+#toast.on{opacity:1}
+#big{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) scale(.6);width:72px;height:72px;border-radius:50%;background:#000a;display:flex;align-items:center;justify-content:center;font-size:30px;opacity:0;pointer-events:none;z-index:7}
+#big.pop{animation:pop .45s ease-out}
+@keyframes pop{0%{opacity:1;transform:translate(-50%,-50%) scale(.7)}100%{opacity:0;transform:translate(-50%,-50%) scale(1.25)}}
+@media (prefers-reduced-motion:reduce){#big.pop{animation:none;opacity:1}}
+#menu{position:absolute;right:12px;bottom:calc(86px + env(safe-area-inset-bottom,0px));background:#000d;border-radius:10px;padding:6px;display:none;flex-direction:column;z-index:8}
+#menu.on{display:flex}
+#menu button.cur{color:var(--pink)}
+#empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:4;text-align:center;padding:24px;background:#0b0b10}
+#empty h1{margin:0;font-size:24px;font-weight:600}
+#empty p{margin:0;font-size:14px;opacity:.7;line-height:1.7;max-width:320px}
+.cta{background:var(--pink);padding:12px 28px;font-size:16px;border-radius:24px;color:#fff}
+#url{display:flex;gap:8px;width:min(100%,360px)}
+#url input{flex:1;min-width:0;background:#1d1d26;border:1px solid #3a3a48;color:#fff;border-radius:8px;padding:10px;font-size:14px}
+#url button{background:var(--blue);border-radius:8px}
+</style>
+</head>
+<body>
+<div id="app" class="hide">
+  <video id="v" playsinline webkit-playsinline preload="metadata"></video>
+  <div id="dim"></div>
+  <div id="stage"></div>
+  <div id="toast"></div><div id="big"></div>
+  <button id="lock" aria-label="锁定屏幕">🔓</button>
+  <div class="bar" id="top"><button id="open" aria-label="打开视频">📂</button><div id="title">未选择视频</div></div>
+  <div class="bar" id="bot">
+    <div class="row"><span id="time">0:00 / 0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="进度"></div>
+    <div class="row">
+      <button id="play" aria-label="播放/暂停">▶</button>
+      <button id="back">⏪ 10</button><button id="fwd">10 ⏩</button>
+      <span style="flex:1"></span>
+      <button id="speed">倍速 1x</button><button id="fs" aria-label="全屏">⛶</button>
+    </div>
+  </div>
+  <div id="menu"></div>
+  <div id="empty">
+    <h1>口袋播放器</h1>
+    <p>双击暂停 · 左右滑动快进 · 左侧上下滑调亮度 · 右侧上下滑调音量 · 长按 2 倍速</p>
+    <button class="cta" id="pick">选择本地视频</button>
+    <div id="url"><input id="u" placeholder="或粘贴视频直链 (mp4/webm)" inputmode="url"><button id="go">播放</button></div>
+  </div>
+  <input id="file" type="file" accept="video/*" hidden>
+</div>
+<script>
+const $=id=>document.getElementById(id),v=$('v'),app=$('app');
+const fmt=s=>{if(!isFinite(s))return'0:00';s=Math.floor(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),c=s%60;return(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(c).padStart(2,'0')};
+let toastT,hideT,locked=false,bright=1,rate=1;
+function toast(t,ms=900){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>e.classList.remove('on'),ms)}
+function pop(t){const b=$('big');b.textContent=t;b.classList.remove('pop');void b.offsetWidth;b.classList.add('pop')}
+function showUI(){app.classList.remove('hide');clearTimeout(hideT);hideT=setTimeout(()=>{if(!v.paused||locked)app.classList.add('hide');$('menu').classList.remove('on')},4000)}
+function hideUI(){app.classList.add('hide');$('menu').classList.remove('on')}
+function toggleUI(){app.classList.contains('hide')?showUI():hideUI()}
+function load(src,name){v.src=src;$('title').textContent=name;$('empty').style.display='none';v.play().catch(()=>{});showUI()}
+$('pick').onclick=$('open').onclick=()=>$('file').click();
+$('file').onchange=e=>{const f=e.target.files[0];if(f)load(URL.createObjectURL(f),f.name.replace(/\.[^.]+$/,''))};
+$('go').onclick=()=>{const u=$('u').value.trim();if(u)load(u,u.split('/').pop()||'网络视频')};
+function toggle(){if(!v.src)return;if(v.paused){v.play();pop('▶')}else{v.pause();pop('⏸')}}
+$('play').onclick=toggle;
+$('back').onclick=()=>{v.currentTime=Math.max(0,v.currentTime-10);showUI()};
+$('fwd').onclick=()=>{v.currentTime=Math.min(v.duration||0,v.currentTime+10);showUI()};
+v.addEventListener('play',()=>{$('play').textContent='⏸';showUI()});
+v.addEventListener('pause',()=>{$('play').textContent='▶';clearTimeout(hideT)});
+v.addEventListener('error',()=>toast('无法播放该视频，格式可能不受支持',2500));
+let dragging=false;
+function upd(){if(dragging)return;const p=v.duration?v.currentTime/v.duration*1000:0;$('seek').value=p;$('seek').style.setProperty('--p',p/10+'%');$('time').textContent=fmt(v.currentTime)+' / '+fmt(v.duration)}
+v.addEventListener('timeupdate',upd);v.addEventListener('loadedmetadata',upd);
+$('seek').addEventListener('input',e=>{dragging=true;const p=e.target.value;e.target.style.setProperty('--p',p/10+'%');$('time').textContent=fmt(p/1000*v.duration)+' / '+fmt(v.duration);clearTimeout(hideT)});
+$('seek').addEventListener('change',e=>{v.currentTime=e.target.value/1000*v.duration;dragging=false;showUI()});
+// speed menu
+const RATES=[0.5,0.75,1,1.25,1.5,2,3];
+function setRate(r){rate=r;v.playbackRate=r;$('speed').textContent='倍速 '+r+'x';$('menu').classList.remove('on')}
+$('menu').innerHTML=RATES.map(r=>`<button data-r="${r}">${r}x</button>`).join('');
+$('menu').onclick=e=>{const r=e.target.dataset.r;if(r){setRate(+r);[...$('menu').children].forEach(b=>b.classList.toggle('cur',b.dataset.r==r))}};
+$('menu').children[2].classList.add('cur');
+$('speed').onclick=()=>{$('menu').classList.toggle('on');showUI()};
+// fullscreen
+$('fs').onclick=async()=>{try{if(document.fullscreenElement){await document.exitFullscreen();screen.orientation.unlock&&screen.orientation.unlock()}else{await app.requestFullscreen();try{await screen.orientation.lock('landscape')}catch(_){}}}catch(e){toast('当前浏览器不支持全屏')}};
+// lock
+$('lock').onclick=()=>{locked=!locked;app.classList.toggle('locked',locked);$('lock').textContent=locked?'🔒':'🔓';toast(locked?'已锁定':'已解锁');showUI()};
+// gestures
+const st=$('stage');let g=null,lastTap=0,tapT;
+st.addEventListener('pointerdown',e=>{
+  if(locked){toggleUI();return}
+  st.setPointerCapture(e.pointerId);
+  g={x:e.clientX,y:e.clientY,mode:null,t0:v.currentTime,b0:bright,v0:v.volume,prev:rate,target:0};
+  g.lp=setTimeout(()=>{if(g&&!g.mode&&!v.paused){g.mode='lp';v.playbackRate=2;toast('2x 倍速播放中',99999)}},500);
+});
+st.addEventListener('pointermove',e=>{
+  if(!g)return;const dx=e.clientX-g.x,dy=e.clientY-g.y,w=st.clientWidth,h=st.clientHeight;
+  if(!g.mode&&(Math.abs(dx)>14||Math.abs(dy)>14)){clearTimeout(g.lp);g.mode=Math.abs(dx)>Math.abs(dy)?'seek':(g.x<w/2?'bright':'vol')}
+  if(g.mode==='seek'&&v.duration){g.target=Math.max(0,Math.min(v.duration,g.t0+dx/w*Math.min(120,v.duration)));const d=g.target-g.t0;toast((d>=0?'⏩ ':'⏪ ')+fmt(g.target)+' / '+fmt(v.duration)+'  ('+(d>=0?'+':'')+Math.round(d)+'s)',99999)}
+  else if(g.mode==='bright'){bright=Math.max(.15,Math.min(1,g.b0-dy/h*1.3));$('dim').style.opacity=1-bright;toast('☀ 亮度 '+Math.round(bright*100)+'%',99999)}
+  else if(g.mode==='vol'){v.volume=Math.max(0,Math.min(1,g.v0-dy/h*1.3));toast('🔊 音量 '+Math.round(v.volume*100)+'%',99999)}
+});
+function endG(e){
+  if(!g)return;clearTimeout(g.lp);const m=g.mode;
+  if(m==='seek')v.currentTime=g.target;
+  if(m==='lp')v.playbackRate=rate;
+  if(m){toast('',0);$('toast').classList.remove('on')}
+  else if(e.type==='pointerup'){
+    const n=Date.now();
+    if(n-lastTap<280){clearTimeout(tapT);lastTap=0;toggle()}
+    else{lastTap=n;tapT=setTimeout(toggleUI,280)}
+  }
+  g=null;
+}
+st.addEventListener('pointerup',endG);st.addEventListener('pointercancel',endG);
+addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();toggle()}
+  if(e.key==='ArrowRight')v.currentTime+=5;if(e.key==='ArrowLeft')v.currentTime-=5;
+});
+</script>
+</body>
+</html>
